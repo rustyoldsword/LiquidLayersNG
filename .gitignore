@@ -1,0 +1,11 @@
+plugin/build/
+plugin/.xmake/
+plugin/lib/
+build/
+.xmake/
+.vs/
+*.pdb
+*.dll
+*.pex
+*.esp
+__pycache__/
