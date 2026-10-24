@@ -56,9 +56,10 @@ dropped); `tools/esplist.py` lists a plugin's records.
 
 ## Credits
 
-- Tull - TullAnimatedCreampie
+- Tullius Channel, Emotional Trash Can - Tull Animated Creampie
 - PredatorRJ - [Predator] Liquid Pack v2
-- The authors of the UBE patches for both mods
+- Blacksheepo815 - [SLTriggers Redux commands for TullAnimatedCreampie and Liquid Pack v2](https://dwemermods.com/mods/4479),
+  which this mod is based on, and the UBE patches for both mods
 - CommonLibSSE-NG, SKSE Menu Framework
 
 ## License
