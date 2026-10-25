@@ -48,11 +48,14 @@ xmake build LiquidLayersNG
 Compile `papyrus/src` with the game's Papyrus Compiler, importing `papyrus/src`, `papyrus/stubs` (minimal SexLab P+
 stubs - the real P+ sources do not parse with the stock compiler) and the SKSE script sources.
 
-### Plugin file
+### Plugin files
 
-`Liquid Layers NG.esp` merges TullAnimatedCreampie, [Predator] Liquid Pack v2 and their UBE patches into one light
-plugin. `tools/fix_form39.py` brings the LE-era (form 39) records up to form 44 (BODT to BOD2, LE texture hashes
-dropped); `tools/esplist.py` lists a plugin's records.
+`Liquid Layers NG.esp` merges TullAnimatedCreampie, [Predator] Liquid Pack v2 and their UBE patches. The release ships
+it as two light plugins: the CBBE 3BA core `Liquid Layers NG.esp` (no UBE master) and the optional
+`Liquid Layers NG - UBE.esp` (the UBE armor addons and the armors overridden to list them). `tools/split_ube.py` cuts
+the merged plugin into the two, remapping every FormID field it carries; `tools/fix_form39.py` brings the LE-era
+(form 39) records up to form 44 (BODT to BOD2, LE texture hashes dropped); `tools/esplist.py` lists a plugin's
+records.
 
 ## Credits
 
