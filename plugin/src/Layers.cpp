@@ -4,6 +4,7 @@
 
 #include <charconv>
 #include <random>
+#include <thread>
 #include <unordered_map>
 
 namespace Layers
@@ -39,6 +40,7 @@ namespace Layers
 		// When each actor's scene ended (or it got a piece): nothing comes off until kSceneSettle after it, so a piece
 		// is never taken off while SexLab redresses and rebuilds the actor's 3D.
 		std::unordered_map<RE::FormID, double> lastInScene;
+		constexpr auto kPutGap = 100ms;  // between the pieces of one climax
 
 		bool InScene(RE::Actor* a_actor)
 		{
@@ -106,7 +108,8 @@ namespace Layers
 				}
 				break;
 			case Papyrus::Kind::kOral:
-				pieces.push_back(Piece::kMouth);
+				// no animated mouth: its mesh hangs on a "PA Earrings" bone the XPMSSE skeleton lacks, so it fell to the
+				// skeleton root and spun on the floor (seen in game); kMouth stays a Piece so old co-saves still load
 				pieces.push_back(s.smp ? Piece::kFaceSMP : Piece::kFace);
 				break;
 			case Papyrus::Kind::kFacial:
@@ -224,8 +227,24 @@ namespace Layers
 			}
 			logger::info("{} -> {} ({})", a_giver->GetDisplayFullName(), a_receiver->GetDisplayFullName(), KindName(a_kind));
 			lastInScene[a_receiver->GetFormID()] = clock;
-			for (const auto piece : PiecesFor(a_kind)) {
-				Put(a_receiver, piece);
+			// up to four pieces (one of them SMP) in one frame load and attach together at the climax, when other mods
+			// rebuild the actor's 3D as well; one at a time, kPutGap apart, spreads that load out
+			const auto pieces = PiecesFor(a_kind);
+			if (pieces.empty()) {
+				return;
+			}
+			Put(a_receiver, pieces.front());
+			if (pieces.size() > 1) {
+				std::thread([receiver = a_receiver->CreateRefHandle(), rest = std::vector(pieces.begin() + 1, pieces.end())]() {
+					for (const auto piece : rest) {
+						std::this_thread::sleep_for(kPutGap);
+						SKSE::GetTaskInterface()->AddTask([receiver, piece]() {
+							if (auto actor = receiver.get(); actor && actor->Is3DLoaded()) {
+								Put(actor.get(), piece);
+							}
+						});
+					}
+				}).detach();
 			}
 		}
 	}
@@ -451,7 +470,124 @@ namespace Layers
 		// (Update3DModel). A piece taken off in that window leaves its geometry on the skeleton for good (seen in game:
 		// the floor puddle and the mouth stayed after "off"), so nothing comes off in a scene or this long after it.
 		constexpr double kSceneSettle = 1.0;
+		// An animated piece's geometry can still outlive its item: seen in game after SexLab redressed at the end of a
+		// scene, the puddle and the mouth stayed on the skeleton with nothing worn, and unequipping or
+		// QueueNiNodeUpdate did not take them off. So every node a piece was attached as is remembered while it is
+		// worn; one that is still under the actor's 3D this long after no biped slot holds it is detached by hand.
+		constexpr double kLooseGrace = 2.0;
 		std::unordered_map<RE::FormID, double> rainFor;
+
+		struct Seen
+		{
+			Piece                         piece;
+			RE::NiPointer<RE::NiAVObject> node;
+			double                        loose{ -1.0 };  // clock when the biped stopped holding it; -1 = held
+		};
+		std::unordered_map<RE::FormID, std::vector<Seen>> seen;
+
+		template <class F>
+		void ForEachBipedObject(RE::Actor* a_actor, F a_visit)
+		{
+			for (const bool firstPerson : { false, true }) {
+				const auto& biped = a_actor->GetBiped(firstPerson);
+				if (!biped) {
+					continue;
+				}
+				for (auto& object : biped->objects) {
+					a_visit(object);
+				}
+			}
+		}
+
+		bool Held(RE::Actor* a_actor, const RE::NiAVObject* a_node)
+		{
+			bool held = false;
+			ForEachBipedObject(a_actor, [&](const RE::BIPOBJECT& a_object) { held = held || a_object.partClone.get() == a_node; });
+			return held;
+		}
+
+		bool UnderActor(RE::Actor* a_actor, const RE::NiAVObject* a_node)
+		{
+			for (const bool firstPerson : { false, true }) {
+				const auto* root = a_actor->Get3D(firstPerson);
+				for (const auto* p = root ? a_node->parent : nullptr; p; p = p->parent) {
+					if (p == root) {
+						return true;
+					}
+				}
+			}
+			return false;
+		}
+
+		// main thread: remember the nodes our animated pieces are attached as right now
+		void Track(RE::Actor* a_actor)
+		{
+			if (!a_actor->Is3DLoaded()) {
+				return;
+			}
+			ForEachBipedObject(a_actor, [&](const RE::BIPOBJECT& a_object) {
+				const auto* armor = a_object.item ? a_object.item->As<RE::TESObjectARMO>() : nullptr;
+				const auto it = armor ? std::ranges::find(forms, armor) : forms.end();
+				if (it == forms.end() || !a_object.partClone) {
+					return;
+				}
+				const auto piece = static_cast<Piece>(std::distance(forms.begin(), it));
+				if (!IsAnimation(piece)) {
+					return;  // only the unskinned Tull meshes were seen left behind; SMP liquid is left to its plugin
+				}
+				auto& list = seen[a_actor->GetFormID()];
+				if (std::ranges::none_of(list, [&](const Seen& a_seen) { return a_seen.node == a_object.partClone; })) {
+					list.push_back({ piece, a_object.partClone });
+				}
+			});
+		}
+
+		// main thread: detach what no biped slot has held for kLooseGrace (a_now: whatever is already loose); returns
+		// how many nodes came off. Nothing is touched in a scene or while SexLab redresses after it.
+		std::int32_t Sweep(RE::Actor* a_actor, bool a_now)
+		{
+			const auto it = seen.find(a_actor->GetFormID());
+			if (it == seen.end()) {
+				return 0;
+			}
+			if (!a_actor->Is3DLoaded()) {
+				seen.erase(it);
+				return 0;
+			}
+			if (InScene(a_actor)) {
+				return 0;
+			}
+			if (const auto last = lastInScene.find(a_actor->GetFormID()); last != lastInScene.end() && clock - last->second < kSceneSettle) {
+				return 0;
+			}
+			std::int32_t removed = 0;
+			std::erase_if(it->second, [&](Seen& a_seen) {
+				if (Held(a_actor, a_seen.node.get())) {
+					a_seen.loose = -1.0;
+					return false;
+				}
+				if (!UnderActor(a_actor, a_seen.node.get())) {
+					return true;  // gone with its item, or with an old 3D
+				}
+				if (a_seen.loose < 0.0) {
+					a_seen.loose = clock;
+				}
+				if (!a_now && clock - a_seen.loose < kLooseGrace) {
+					return false;
+				}
+				if (a_now && a_seen.loose == clock) {
+					return false;  // came loose this very moment: the unequip may still be detaching it itself
+				}
+				a_seen.node->parent->DetachChild(a_seen.node.get());
+				logger::info("  {}: leftover geometry removed ({})", PieceName(a_seen.piece), a_actor->GetDisplayFullName());
+				++removed;
+				return true;
+			});
+			if (it->second.empty()) {
+				seen.erase(it);
+			}
+			return removed;
+		}
 
 		void WashNow(RE::Actor* a_actor, const char* a_reason)
 		{
@@ -483,10 +619,11 @@ namespace Layers
 			return sky && sky->IsRaining() && cell && cell->IsExteriorCell();
 		}
 
-		bool DressedBody(RE::Actor* a_actor)
+		// what the actor wears on the body slot that is not ours, or null
+		const RE::TESObjectARMO* BodyClothing(RE::Actor* a_actor)
 		{
 			const auto* body = a_actor->GetWornArmor(RE::BGSBipedObjectForm::BipedObjectSlot::kBody);
-			return body && !Ours(body);
+			return body && !Ours(body) ? body : nullptr;
 		}
 
 		bool UnderClothes(Piece a_piece)
@@ -509,12 +646,46 @@ namespace Layers
 		});
 	}
 
+	std::int32_t WipeOff(RE::Actor* a_actor)
+	{
+		if (!a_actor) {
+			return 0;
+		}
+		const auto id = a_actor->GetFormID();
+		// same rule as the timers: nothing comes off in a scene or while SexLab redresses after it (kSceneSettle)
+		if (InScene(a_actor)) {
+			return -1;
+		}
+		if (const auto it = lastInScene.find(id); it != lastInScene.end() && clock - it->second < kSceneSettle) {
+			return -1;
+		}
+		// leftover geometry that is already loose goes now; what this wipe takes off is checked by the next ticks
+		const bool leftovers = Sweep(a_actor, true) > 0;
+		const auto it = worn.find(id);
+		if (it == worn.end() || it->second.empty()) {
+			return leftovers ? 1 : 0;
+		}
+		WashNow(a_actor, "wiped off");
+		return 1;
+	}
+
 	void Tick(double a_seconds)
 	{
 		clock += a_seconds;
 		const auto& s = Settings::Get();
 		const auto* calendar = RE::Calendar::GetSingleton();
 		const double days = calendar ? calendar->GetDaysPassed() : 0.0;
+		std::vector<RE::FormID> watched;
+		for (const auto& [id, list] : seen) {
+			watched.push_back(id);
+		}
+		for (const auto id : watched) {
+			if (auto* actor = RE::TESForm::LookupByID<RE::Actor>(id)) {
+				Sweep(actor, false);
+			} else {
+				seen.erase(id);
+			}
+		}
 		for (const auto id : Wearers()) {
 			auto* actor = RE::TESForm::LookupByID<RE::Actor>(id);
 			if (!actor) {
@@ -523,6 +694,7 @@ namespace Layers
 				lastInScene.erase(id);
 				continue;
 			}
+			Track(actor);
 			// nothing comes off in a scene or right after it (see kSceneSettle); timers that run out meanwhile wait
 			if (InScene(actor)) {
 				lastInScene[id] = clock;
@@ -549,14 +721,24 @@ namespace Layers
 				}
 			}
 			auto& list = worn[id];
-			const bool dressed = s.hideBottomDressed && DressedBody(actor);
+			const auto* clothing = s.hideBottomDressed ? BodyClothing(actor) : nullptr;
 			// the puddle is an item the actor wears: once the scene is over she would carry it along the floor
 			std::erase_if(list, [&](const Worn& a_entry) {
 				const bool expired = IsAnimation(a_entry.piece) ? a_entry.until <= clock : (a_entry.until > 0.0 && days >= a_entry.until);
-				const bool covered = dressed && UnderClothes(a_entry.piece);
+				const bool covered = clothing && UnderClothes(a_entry.piece);
 				const bool left = a_entry.piece == Piece::kFloor;
-				if (!expired && !covered && !left) {
+				// a piece something else took off (a redress or outfit mod): say so, forget it (users saw "everything
+				// vanishes after the scene" with nothing in the log to tell why)
+				auto* armor = Form(a_entry.piece);
+				const bool gone = armor && actor->Is3DLoaded() && !actor->GetWornArmor(armor->GetFormID());
+				if (!expired && !covered && !left && !gone) {
 					return false;
+				}
+				if (gone && !expired && !covered && !left) {
+					logger::info("  {}: no longer worn - taken off by another mod", PieceName(a_entry.piece));
+				}
+				if (covered && !expired) {
+					logger::info("  {}: covered by {} ({:08X})", PieceName(a_entry.piece), clothing->GetName(), clothing->GetFormID());
 				}
 				Remove(actor, a_entry.piece);
 				return true;
@@ -631,6 +813,7 @@ namespace Layers
 		lastInScene.clear();
 		threadActors.clear();
 		sceneOf.clear();
+		seen.clear();
 	}
 
 	void SweepPlayer()

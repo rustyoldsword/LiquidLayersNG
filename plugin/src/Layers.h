@@ -51,6 +51,9 @@ namespace Layers
 
 	// Everything we put on the actor comes off (washing, the menu button). Any thread: queued for the main thread.
 	void WashOff(RE::Actor* a_actor, const char* a_reason);
+	// The actor wipes itself clean (SL Survival's Cum wheel), whatever the wash settings say. Main thread.
+	// 1 wiped, 0 nothing of ours on it, -1 not now (in a SexLab scene or just after it).
+	std::int32_t WipeOff(RE::Actor* a_actor);
 	// Main thread, a few times a second: expired timers, water, rain, body clothing.
 	void Tick(double a_seconds);
 

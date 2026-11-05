@@ -8,3 +8,7 @@ Function Climax(Actor akGiver, Actor akReceiver, int aiKind) global native
 
 ; Bathing in Skyrim finished washing akActor: everything Liquid Layers NG put on it comes off.
 Function Wash(Actor akActor) global native
+
+; akActor wipes itself clean, regardless of the wash settings.
+; Returns 1 wiped, 0 nothing to wipe, -1 not now (in a SexLab scene or right after it).
+Int Function Wipe(Actor akActor) global native

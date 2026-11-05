@@ -47,7 +47,7 @@ namespace Menu
 			ImGuiMCP::SeparatorText("Which climaxes leave layers");
 			Check("Vaginal", s.vaginal, "Animated creampie, puddle and Liquid Bottom.");
 			Check("Anal", s.anal, "Same layers as vaginal.");
-			Check("Oral", s.oral, "Animated mouth and Liquid Face.");
+			Check("Oral", s.oral, "Liquid Face.");
 			Check("Facial", s.facial, "Liquid Face only.");
 
 			ImGuiMCP::SeparatorText("Animation (TullAnimatedCreampie)");

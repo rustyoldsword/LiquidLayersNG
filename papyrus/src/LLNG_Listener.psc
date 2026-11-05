@@ -35,6 +35,12 @@ Event OnSexLabOrgasm(Form akActor, int aiThread)
 	If (!thread)
 		Return
 	EndIf
+	; Both collision and tag paths require a semen-producing giver.
+	; P+ sex: Male 0, Female 1, Futa 2, CreatureMale 3, CreatureFemale 4.
+	int sex = SexLabRegistry.GetSex(giver, False)
+	If (sex == 1 || sex == 4)
+		Return
+	EndIf
 	If (thread.IsInteractionRegistered())
 		; P+ interaction ids: aFacial 13, pOral 18, pDeepthroat 20, aVaginal 23, aAnal 25
 		int sent = Send(giver, thread.GetPartnersByInteractionType(giver, 23), KindVaginal)
@@ -49,10 +55,6 @@ Event OnSexLabOrgasm(Form akActor, int aiThread)
 		Return
 	EndIf
 	; No collision data: fall back to the scene tags, partners = the other positions without a penis.
-	int sex = SexLabRegistry.GetSex(giver, False)
-	If (sex == 1 || sex == 4)
-		Return
-	EndIf
 	int kind = 0
 	If (thread.HasSceneTag("Vaginal"))
 		kind = KindVaginal

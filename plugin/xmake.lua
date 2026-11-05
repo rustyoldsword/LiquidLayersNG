@@ -3,7 +3,7 @@ set_xmakever("3.0.0")
 includes("lib/CommonLibSSE-NG")
 
 set_project("LiquidLayersNG")
-set_version("1.0.0")
+set_version("1.1.2")
 set_license("MIT")
 set_languages("c++23")
 set_warnings("allextra")

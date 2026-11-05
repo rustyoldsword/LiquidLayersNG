@@ -12,17 +12,21 @@ repository holds only the code that builds it.
 - `LLNG_Listener` (Papyrus, a start-game-enabled quest) listens for SexLab P+'s per-actor `SexlabOrgasmSeparate` mod
   event - a Papyrus-only event SKSE plugins cannot see - asks P+ 2.19 who received the climax and how
   (`GetPartnersByInteractionType`, falling back to the scene tags without collision data) and calls the native
-  `LiquidLayersNG.Climax(giver, receiver, kind)`.
-- `Layers` decides the pieces (vaginal / anal: animated creampie + floor puddle + Liquid Bottom; oral: mouth + Liquid
-  Face; facial: Liquid Face), equips them silently with `ActorEquipManager`, skips any piece whose slot already holds
+  `LiquidLayersNG.Climax(giver, receiver, kind)`. Female (and creature female) givers are rejected first.
+- `Layers` decides the pieces (vaginal / anal: animated creampie + floor puddle + Liquid Bottom; oral and facial: Liquid
+  Face), equips them silently with `ActorEquipManager`, skips any piece whose slot already holds
   an item of the actor's, and keeps per-actor timers: animation in real seconds, liquid in game hours.
 - Who is in a scene comes from P+'s thread events (`AnimationStart` / `StageStart` / `AnimationEnd`, SKSE mod
   callbacks). Nothing comes off during a scene or in the second after it: taking a piece off while SexLab redresses
-  the actor and rebuilds its 3D leaves the geometry on the skeleton. The floor puddle comes off when the scene ends.
+  the actor and rebuilds its 3D leaves the geometry on the skeleton. The floor puddle comes off when the scene ends. The nodes of the animated
+  pieces are remembered while worn; one still under the actor's 3D two seconds after no biped slot holds it is
+  detached. The pieces of one climax go on 100 ms apart.
 - `Ticker` drives the timers four times a second from a thread (paused time does not count; `PlayerCharacter::Update`
   does not run during a P+ scene, so a frame hook would stop there).
 - Washing: deep water or swimming, Bathing in Skyrim (`BiS_WashActorFinish`, through the listener), optionally rain;
   Bottom/Torso come off under body clothing. State is kept in the SKSE co-save (`LLNG` / `WORN`).
+- `LiquidLayersNG.Wipe(actor)` (Papyrus) takes everything off at once for other mods; every removal is logged with
+  its reason.
 - `Menu` - the SKSE Menu Framework page; `Settings` - `LiquidLayersNG.ini` (see `data/`).
 
 ## Building
